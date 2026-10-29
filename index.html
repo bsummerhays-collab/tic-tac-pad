@@ -87,6 +87,13 @@ h1 .o { color: var(--o); }
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.hud { display: flex; align-items: center; gap: 14px; }
+.sound {
+  appearance: none; background: none; border: 1px solid var(--rule); border-radius: 4px;
+  padding: 3px 7px; cursor: pointer;
+}
+.sound[aria-pressed="false"] { text-decoration: line-through; }
+.sound:focus-visible { outline: 2.5px solid var(--focus); outline-offset: 2px; }
 .conn { display: inline-flex; align-items: center; gap: 6px; }
 .conn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .conn.on::before { background: var(--ok); }
@@ -235,7 +242,10 @@ footer a { color: var(--muted); }
 <div class="wrap">
   <header>
     <h1>Tic <span class="x">Tac</span> <span class="o">Pad</span></h1>
-    <span class="eyebrow conn" id="conn">Starting</span>
+    <div class="hud">
+      <button class="eyebrow sound" id="soundBtn" type="button" aria-pressed="true">Sound on</button>
+      <span class="eyebrow conn" id="conn">Starting</span>
+    </div>
   </header>
 
   <section class="invite" id="invite" hidden>
@@ -365,6 +375,7 @@ footer a { color: var(--muted); }
   // Both sides call these; the guest asks the host, the host decides.
   function act(kind, i) {
     if (!connected()) return;
+    if (kind === "newRound") skipRound = state.round + 1;
     if (role === "host") {
       if (kind === "move") hostCommit(applyMove(state, i, "X"));
       if (kind === "newRound") hostCommit(applyNewRound(state));
@@ -532,6 +543,64 @@ footer a { color: var(--muted); }
     });
   }
 
+  // ---- turn chime ----------------------------------------------------------
+  // Browsers only allow sound after the person has clicked or typed on the page,
+  // so the audio engine is created on the first interaction.
+  let soundOn = store.get("localStorage", "ttp-sound") !== false;
+  let audio = null;
+  let wasMyTurn = false;
+  let skipRound = null;  // a round this player started themselves; no chime as it begins
+
+  function unlockAudio() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!audio) { try { audio = new AC(); } catch { return; } }
+    if (audio.state === "suspended") audio.resume().catch(() => {});
+  }
+  ["pointerdown", "keydown"].forEach((ev) => window.addEventListener(ev, unlockAudio, { capture: true }));
+
+  function chime() {
+    if (!soundOn || !audio || audio.state !== "running") return;
+    const t0 = audio.currentTime + 0.01;
+    // Two soft rising notes: E5 then A5.
+    [[659.25, 0], [880, 0.12]].forEach(([freq, delay]) => {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0 + delay);
+      gain.gain.exponentialRampToValueAtTime(0.22, t0 + delay + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + delay + 0.32);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(t0 + delay);
+      osc.stop(t0 + delay + 0.34);
+    });
+  }
+
+  // Called on every render; chimes only when the turn passes to this player,
+  // and not when their own "New round" click is what made it their turn.
+  function checkTurn() {
+    const myTurn = connected() && !state.winner && state.turn === myMark;
+    if (skipRound !== null && state.round >= skipRound) skipRound = null;
+    else if (myTurn && !wasMyTurn) chime();
+    wasMyTurn = myTurn;
+    document.title = myTurn && document.hidden ? "● Your move · Tic Tac Pad" : "Tic Tac Pad";
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) document.title = "Tic Tac Pad"; });
+
+  function renderSound() {
+    const b = $("soundBtn");
+    b.textContent = soundOn ? "Sound on" : "Sound off";
+    b.setAttribute("aria-pressed", String(soundOn));
+  }
+  $("soundBtn").onclick = () => {
+    soundOn = !soundOn;
+    store.set("localStorage", "ttp-sound", soundOn);
+    renderSound();
+    if (soundOn) { unlockAudio(); setTimeout(chime, 50); }
+  };
+  renderSound();
+
   // ---- rendering -----------------------------------------------------------
   function markSVG(m, extra = "") {
     if (m === "X") {
@@ -644,6 +713,7 @@ footer a { color: var(--muted); }
     $("status").innerHTML = s;
     $("sub").textContent = t;
     $("sub").hidden = !t;
+    checkTurn();
 
     const ctr = $("controls");
     ctr.innerHTML = "";
