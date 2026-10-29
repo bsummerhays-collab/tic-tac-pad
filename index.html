@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tic Tac Pad</title>
+<meta name="description" content="Two-player tic tac toe you can play with a teammate over a link.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M20 20L80 80M80 20L20 80' stroke='%232350c4' stroke-width='14' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column on engineering graph paper: invite, players, the board, then round controls. Dark mode is a blueprint sheet. */
+:root {
+  --paper: #eef5f2;
+  --grid: #d3e5df;
+  --grid-major: #b9d3cb;
+  --surface: #fbfdfc;
+  --ink: #1b2733;
+  --muted: #586a73;
+  --rule: #c3d6d0;
+  --line: #2b3b47;
+  --x: #2350c4;
+  --o: #c43e28;
+  --x-wash: #e3eafb;
+  --o-wash: #f9e6e2;
+  --ok: #2f7d4f;
+  --focus: #2350c4;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Instrument Sans", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e2135; --grid: #16314d; --grid-major: #1f4166; --surface: #12283f;
+    --ink: #e5eef6; --muted: #92a9bd; --rule: #24476b; --line: #cddff0;
+    --x: #8db8ff; --o: #ffb08a; --x-wash: #18355a; --o-wash: #3a2a2a; --ok: #7fd6a2; --focus: #8db8ff;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; margin: 0; }
+body {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.wrap {
+  max-width: 480px;
+  margin: 0 auto;
+  padding-block: 28px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+h1 .x { color: var(--x); }
+h1 .o { color: var(--o); }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.conn { display: inline-flex; align-items: center; gap: 6px; }
+.conn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.conn.on::before { background: var(--ok); }
+.conn.on { color: var(--ok); }
+
+/* Invite */
+.invite {
+  background: var(--surface);
+  border: 1.5px dashed var(--line);
+  border-radius: 6px;
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.invite h2 { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; }
+.invite p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+.invite .row { display: flex; gap: 8px; }
+.invite input {
+  flex: 1; min-width: 0;
+  font: 0.82rem/1.2 var(--font-mono);
+  padding: 10px; border-radius: 5px;
+  border: 1.5px solid var(--rule); background: var(--paper); color: var(--ink);
+}
+
+/* You */
+.you { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.88rem; color: var(--muted); }
+.you input {
+  font: 600 0.92rem/1.2 var(--font-body);
+  padding: 6px 8px; border-radius: 5px; width: 12em; max-width: 100%;
+  border: 1.5px solid var(--rule); background: var(--surface); color: var(--ink);
+}
+.you input:focus-visible, .invite input:focus-visible { outline: 2.5px solid var(--focus); outline-offset: 1px; }
+
+/* Players */
+.players { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.seat {
+  background: var(--surface);
+  border: 1.5px solid var(--rule);
+  border-radius: 6px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  column-gap: 10px;
+  row-gap: 6px;
+  min-width: 0;
+  transition: border-color .2s, background-color .2s;
+}
+.seat .glyph { grid-row: 1 / span 2; width: 40px; height: 40px; }
+.seat .name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+}
+.seat .name.open { color: var(--muted); font-weight: 500; }
+.seat .meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.seat .score { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seat .score b { color: var(--ink); font-weight: 500; font-size: 1rem; }
+.seat.turn-x { border-color: var(--x); background: var(--x-wash); }
+.seat.turn-o { border-color: var(--o); background: var(--o-wash); }
+.chip {
+  font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: .08em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 3px; color: var(--surface);
+}
+.chip.x { background: var(--x); }
+.chip.o { background: var(--o); }
+
+/* Board */
+.board { position: relative; width: 100%; max-width: 100%; aspect-ratio: 1; margin: 0 auto; }
+.board > svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.board .lines path { fill: none; stroke: var(--line); stroke-width: 3.2; stroke-linecap: round; }
+.cells { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
+.cell {
+  appearance: none; background: transparent; border: 0; padding: 12%; margin: 0;
+  cursor: default; position: relative; border-radius: 10px; color: inherit;
+}
+.cell.playable { cursor: pointer; }
+.cell:focus-visible { outline: 2.5px solid var(--focus); outline-offset: -8px; }
+.cell svg { width: 100%; height: 100%; display: block; }
+.cell .ghost { opacity: 0; transition: opacity .15s; }
+.cell.playable:hover .ghost, .cell.playable:focus-visible .ghost { opacity: .22; }
+
+.mk path { fill: none; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+.mk-x path { stroke: var(--x); }
+.mk-o path { stroke: var(--o); }
+.draw path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: ink .3s cubic-bezier(.4,.1,.3,1) forwards; animation-delay: var(--d, 0s); }
+.winline path { fill: none; stroke-width: 7; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: ink .45s ease-out .25s forwards; opacity: .9; }
+.winline.x path { stroke: var(--x); }
+.winline.o path { stroke: var(--o); }
+.board.over .cell:not(.won) svg.mk { opacity: .45; transition: opacity .3s .4s; }
+@keyframes ink { to { stroke-dashoffset: 0; } }
+
+/* Status + controls */
+.status {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  text-align: center;
+  text-wrap: balance;
+  min-height: 1.6em;
+  margin: 0;
+}
+.status .x { color: var(--x); }
+.status .o { color: var(--o); }
+.sub { text-align: center; color: var(--muted); margin: -12px 0 0; text-wrap: balance; }
+.controls { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.controls:empty { display: none; }
+button.btn {
+  font: 600 0.92rem/1 var(--font-body);
+  padding: 11px 18px;
+  border-radius: 6px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+button.btn:hover { filter: brightness(1.06); }
+button.btn:focus-visible, a:focus-visible { outline: 2.5px solid var(--focus); outline-offset: 2px; }
+.note { text-align: center; font-size: 0.86rem; color: var(--o); min-height: 1.3em; margin: -6px 0 0; }
+
+footer {
+  border-top: 1px dashed var(--rule);
+  padding-top: 14px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  font-size: 0.82rem; color: var(--muted);
+}
+footer a { color: var(--muted); }
+
+[hidden] { display: none !important; }
+
+@media (max-width: 380px) {
+  .seat { grid-template-columns: 28px 1fr; padding: 10px; }
+  .seat .glyph { width: 28px; height: 28px; }
+  h1 { font-size: 1.7rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .draw path, .winline path { animation: none; stroke-dashoffset: 0; }
+  .seat, .cell .ghost { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tic <span class="x">Tac</span> <span class="o">Pad</span></h1>
+    <span class="eyebrow conn" id="conn">Starting</span>
+  </header>
+
+  <section class="invite" id="invite" hidden>
+    <h2>Send this link to your teammate</h2>
+    <p>When they open it, you're connected and X moves first. Keep this tab open while you play.</p>
+    <div class="row">
+      <input id="inviteUrl" type="text" readonly aria-label="Invite link" value="Creating your game…">
+      <button class="btn primary" id="copyBtn" type="button">Copy link</button>
+    </div>
+  </section>
+
+  <label class="you" for="myName">Your name
+    <input id="myName" type="text" maxlength="30" placeholder="Add your name" autocomplete="nickname">
+  </label>
+
+  <section class="players" aria-label="Players">
+    <div class="seat" id="seatX"></div>
+    <div class="seat" id="seatO"></div>
+  </section>
+
+  <div class="board" id="board">
+    <svg class="lines" viewBox="0 0 300 300" aria-hidden="true">
+      <path d="M100 10 C 102 80, 98 170, 101 290"/>
+      <path d="M200 8 C 198 90, 202 200, 199 292"/>
+      <path d="M9 101 C 90 98, 190 103, 291 99"/>
+      <path d="M10 199 C 100 202, 200 197, 290 201"/>
+    </svg>
+    <div class="cells" id="cells" role="grid" aria-label="Board"></div>
+    <svg class="winline" id="winline" viewBox="0 0 300 300" aria-hidden="true"></svg>
+  </div>
+
+  <p class="status" id="status" aria-live="polite">Starting…</p>
+  <p class="sub" id="sub" hidden></p>
+  <div class="controls" id="controls"></div>
+  <p class="note" id="note" role="alert"></p>
+
+  <footer>
+    <span class="eyebrow" id="roundLabel">Round 1 · X opens</span>
+    <span class="eyebrow" id="tally">Draws 0</span>
+    <a href="./" id="newGame" hidden>Start your own game</a>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(() => {
+  const WINS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(area, k) { try { return JSON.parse(window[area].getItem(k)); } catch { return null; } },
+    set(area, k, v) { try { window[area].setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  // The person who opens the plain page hosts as X; the invite link joins as O.
+  const joinId = new URLSearchParams(location.search).get("join");
+  const role = joinId ? "guest" : "host";
+  const myMark = role === "host" ? "X" : "O";
+  const theirMark = myMark === "X" ? "O" : "X";
+
+  let peer = null, conn = null;
+  let linkState = "starting";  // starting | waiting | connected | lost | failed
+  let peerName = "";
+  let myName = store.get("localStorage", "ttp-name") || "";
+  let state = blank();
+  let prevBoard = null;
+  let pendingReset = false;
+  let retryTimer = 0, noteTimer = 0;
+
+  function blank() {
+    return { board: Array(9).fill(""), turn: "X", starter: "X", winner: null, line: null,
+             round: 1, scores: { X: 0, O: 0, draw: 0 } };
+  }
+  function normalize(d) {
+    const g = blank();
+    if (!d || !Array.isArray(d.board) || d.board.length !== 9) return g;
+    g.board = d.board.map(v => (v === "X" || v === "O") ? v : "");
+    g.turn = d.turn === "O" ? "O" : "X";
+    g.starter = d.starter === "O" ? "O" : "X";
+    g.winner = ["X", "O", "draw"].includes(d.winner) ? d.winner : null;
+    g.line = Array.isArray(d.line) && d.line.length === 3 ? d.line.map(Number) : null;
+    g.round = Number.isFinite(d.round) ? d.round : 1;
+    const s = d.scores || {};
+    g.scores = { X: +s.X || 0, O: +s.O || 0, draw: +s.draw || 0 };
+    return g;
+  }
+  function outcome(b) {
+    for (const l of WINS) {
+      const [a, c, e] = l;
+      if (b[a] && b[a] === b[c] && b[a] === b[e]) return { winner: b[a], line: l };
+    }
+    return { winner: b.every(Boolean) ? "draw" : null, line: null };
+  }
+  const cls = (m) => m === "X" ? "x" : "o";
+  const connected = () => linkState === "connected";
+
+  // ---- game rules (the host is the referee) --------------------------------
+  function applyMove(g, i, mark) {
+    if (g.winner || g.board[i] || g.turn !== mark || !(i >= 0 && i < 9)) return null;
+    const board = g.board.slice();
+    board[i] = mark;
+    const out = outcome(board);
+    const scores = { ...g.scores };
+    if (out.winner === "draw") scores.draw++;
+    else if (out.winner) scores[out.winner]++;
+    return { ...g, board, turn: out.winner ? g.turn : (mark === "X" ? "O" : "X"),
+             winner: out.winner, line: out.line, scores };
+  }
+  function applyNewRound(g) {
+    if (!g.winner) return null;
+    const starter = g.starter === "X" ? "O" : "X";
+    return { ...g, board: Array(9).fill(""), starter, turn: starter, winner: null, line: null, round: g.round + 1 };
+  }
+  function applyReset(g) { return { ...g, scores: { X: 0, O: 0, draw: 0 } }; }
+
+  function hostCommit(next) {
+    if (!next) return;
+    state = next;
+    store.set("sessionStorage", "ttp-host-state", state);
+    send({ type: "state", state });
+    render();
+  }
+
+  // Both sides call these; the guest asks the host, the host decides.
+  function act(kind, i) {
+    if (!connected()) return;
+    if (role === "host") {
+      if (kind === "move") hostCommit(applyMove(state, i, "X"));
+      if (kind === "newRound") hostCommit(applyNewRound(state));
+      if (kind === "reset") hostCommit(applyReset(state));
+    } else {
+      send({ type: kind, i });
+    }
+  }
+
+  function onData(msg) {
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "hello") {
+      peerName = String(msg.name || "").slice(0, 30);
+      render();
+      return;
+    }
+    if (role === "guest" && msg.type === "state") {
+      state = normalize(msg.state);
+      render();
+      return;
+    }
+    if (role === "host") {
+      if (msg.type === "move") hostCommit(applyMove(state, Number(msg.i), "O"));
+      if (msg.type === "newRound") hostCommit(applyNewRound(state));
+      if (msg.type === "reset") hostCommit(applyReset(state));
+    }
+  }
+
+  // ---- connection ----------------------------------------------------------
+  function send(msg) { if (conn && conn.open) { try { conn.send(msg); } catch {} } }
+
+  function setupConn(c) {
+    c.on("open", () => {
+      if (conn && conn !== c) { try { conn.close(); } catch {} }
+      conn = c;
+      linkState = "connected";
+      send({ type: "hello", name: myName });
+      if (role === "host") send({ type: "state", state });
+      note("");
+      render();
+    });
+    c.on("data", onData);
+    c.on("close", () => {
+      if (conn !== c) return;
+      conn = null;
+      linkState = role === "host" ? "waiting" : "lost";
+      render();
+      if (role === "guest") scheduleJoin(2000);
+    });
+    c.on("error", () => {});
+  }
+
+  function scheduleJoin(ms) {
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(join, ms);
+  }
+  function join() {
+    clearTimeout(retryTimer);
+    if (!peer || peer.destroyed || connected()) return;
+    if (peer.disconnected) { peer.reconnect(); return; }
+    const c = peer.connect(joinId, { reliable: true });
+    setupConn(c);
+    // A connection attempt can stall without ever failing; start over if it does.
+    retryTimer = setTimeout(() => {
+      if (c.open) return;
+      try { c.close(); } catch {}
+      join();
+    }, 10000);
+  }
+
+  function makeId() {
+    const a = "abcdefghijkmnpqrstuvwxyz23456789";
+    let s = "tictacpad-";
+    const r = crypto.getRandomValues(new Uint8Array(10));
+    for (const n of r) s += a[n % a.length];
+    return s;
+  }
+
+  function start() {
+    if (typeof Peer !== "function") {
+      linkState = "failed";
+      note("The game couldn't load its connection library. Check your internet connection and reload.");
+      render();
+      return;
+    }
+    if (role === "host") {
+      let id = store.get("sessionStorage", "ttp-host-id");
+      if (!id) { id = makeId(); store.set("sessionStorage", "ttp-host-id", id); }
+      const saved = store.get("sessionStorage", "ttp-host-state");
+      if (saved) state = normalize(saved);
+      peer = new Peer(id);
+      peer.on("open", (pid) => {
+        linkState = connected() ? "connected" : "waiting";
+        const url = new URL(location.href);
+        url.search = "?join=" + encodeURIComponent(pid);
+        url.hash = "";
+        $("inviteUrl").value = url.toString();
+        render();
+      });
+      peer.on("connection", setupConn);
+    } else {
+      peer = new Peer();
+      peer.on("open", () => { linkState = connected() ? "connected" : "lost"; join(); render(); });
+    }
+    peer.on("disconnected", () => { if (!peer.destroyed) setTimeout(() => peer.reconnect(), 1500); });
+    peer.on("error", (e) => {
+      const t = e && e.type;
+      if (t === "unavailable-id") {
+        // A refresh can briefly leave the old game id reserved; try again shortly.
+        try { peer.destroy(); } catch {}
+        setTimeout(start, 3000);
+        return;
+      }
+      if (t === "peer-unavailable") {
+        linkState = "lost";
+        note("Can't reach the other player yet. Make sure their game tab is open; retrying…");
+        render();
+        scheduleJoin(4000);
+        return;
+      }
+      if (t === "network" || t === "server-error" || t === "socket-error" || t === "socket-closed") {
+        note("Lost contact with the connection server. Retrying…");
+        if (role === "guest") scheduleJoin(4000);
+        return;
+      }
+      if (t === "browser-incompatible") {
+        linkState = "failed";
+        note("This browser can't make direct connections. Try a current version of Chrome, Edge, Firefox or Safari.");
+        render();
+      }
+    });
+  }
+
+  // ---- rendering -----------------------------------------------------------
+  function markSVG(m, extra = "") {
+    if (m === "X") {
+      return `<svg viewBox="0 0 100 100" class="mk mk-x ${extra}" aria-hidden="true">
+        <path pathLength="1" d="M26 24 C 42 41, 58 59, 76 76"/>
+        <path pathLength="1" style="--d:.16s" d="M75 25 C 59 41, 42 58, 24 77"/></svg>`;
+    }
+    return `<svg viewBox="0 0 100 100" class="mk mk-o ${extra}" aria-hidden="true">
+      <path pathLength="1" d="M52 23 C 71 23, 79 37, 78 52 C 77 68, 64 79, 49 78 C 33 77, 22 65, 23 49 C 24 34, 35 24, 55 25"/></svg>`;
+  }
+  function note(msg) {
+    clearTimeout(noteTimer);
+    $("note").textContent = msg || "";
+    if (msg) noteTimer = setTimeout(() => { $("note").textContent = ""; }, 8000);
+  }
+  const nameOf = (m) => m === myMark ? (myName ? `${myName} (you)` : "You") : (peerName || "Teammate");
+  const canPlay = (i) => connected() && !state.winner && !state.board[i] && state.turn === myMark;
+
+  function render() {
+    const g = state;
+
+    const c = $("conn");
+    c.className = "eyebrow conn" + (connected() ? " on" : "");
+    c.textContent = { starting: "Starting", waiting: "Waiting for teammate", connected: "Connected",
+                      lost: role === "guest" ? "Joining" : "Reconnecting", failed: "Offline" }[linkState];
+
+    $("invite").hidden = role !== "host" || connected();
+    $("newGame").hidden = role !== "guest";
+    $("roundLabel").textContent = `Round ${g.round} · ${g.starter} opens`;
+    $("tally").textContent = `Draws ${g.scores.draw}`;
+
+    for (const m of ["X", "O"]) {
+      const el = $(m === "X" ? "seatX" : "seatO");
+      const present = m === myMark || connected();
+      const active = connected() && !g.winner && g.turn === m;
+      el.className = "seat" + (active ? ` turn-${cls(m)}` : "");
+      el.innerHTML = `<div class="glyph">${markSVG(m)}</div><span class="name"></span>
+        <div class="meta"><span class="score"><b>${g.scores[m]}</b> ${g.scores[m] === 1 ? "win" : "wins"}</span>
+        ${active ? `<span class="chip ${cls(m)}">To move</span>` : ""}</div>`;
+      const nm = el.querySelector(".name");
+      nm.textContent = present ? nameOf(m) : (role === "host" ? "Not joined yet" : "Host");
+      if (!present) nm.classList.add("open");
+    }
+
+    const cells = $("cells");
+    const animate = prevBoard !== null;
+    const winLine = g.line || [];
+    cells.innerHTML = "";
+    g.board.forEach((v, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cell";
+      b.setAttribute("role", "gridcell");
+      const playable = canPlay(i);
+      if (playable) b.classList.add("playable"); else b.setAttribute("aria-disabled", "true");
+      if (winLine.includes(i)) b.classList.add("won");
+      b.setAttribute("aria-label", `Row ${Math.floor(i / 3) + 1}, column ${i % 3 + 1}, ${v || "empty"}`);
+      if (v) b.innerHTML = markSVG(v, animate && prevBoard[i] !== v ? "draw" : "");
+      else if (playable) b.innerHTML = markSVG(myMark, "ghost");
+      b.onclick = () => { if (canPlay(i)) act("move", i); };
+      cells.append(b);
+    });
+    prevBoard = g.board.slice();
+    $("board").classList.toggle("over", !!g.winner);
+
+    const wl = $("winline");
+    if (g.line && g.winner && g.winner !== "draw") {
+      const pt = (i) => [(i % 3) * 100 + 50, Math.floor(i / 3) * 100 + 50];
+      const [x1, y1] = pt(g.line[0]), [x2, y2] = pt(g.line[2]);
+      const dx = (x2 - x1) / 200 * 36, dy = (y2 - y1) / 200 * 36;
+      const sig = `${g.line.join("")}${g.winner}${g.round}`;
+      if (wl.dataset.sig !== sig) {
+        wl.dataset.sig = sig;
+        wl.setAttribute("class", `winline ${cls(g.winner)}`);
+        wl.innerHTML = `<path pathLength="1" d="M${x1 - dx} ${y1 - dy} L${x2 + dx} ${y2 + dy}"/>`;
+      }
+    } else {
+      wl.dataset.sig = ""; wl.innerHTML = "";
+    }
+
+    const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+    const tag = (m, text) => `<span class="${cls(m)}">${text}</span>`;
+    let s = "", t = "";
+    if (linkState === "starting") {
+      s = "Setting up the game…";
+    } else if (linkState === "failed") {
+      s = "Can't connect";
+    } else if (!connected()) {
+      if (role === "host") {
+        s = linkState === "waiting" && g.round === 1 && !g.board.some(Boolean) ? "Waiting for your teammate" : "Waiting for your teammate to reconnect";
+        t = "Copy the link above and send it to them. The game starts when they open it.";
+      } else {
+        s = "Joining the game…";
+        t = "This connects straight to the host's browser, so their game tab needs to stay open.";
+      }
+    } else if (g.winner === "draw") {
+      s = "Draw. Nobody takes this one.";
+    } else if (g.winner) {
+      s = g.winner === myMark ? tag(myMark, "You win!") : tag(theirMark, `${esc(peerName || "Your teammate")} wins.`);
+    } else if (g.turn === myMark) {
+      s = `Your move, ${tag(myMark, myMark)}`;
+    } else {
+      s = `Waiting for ${esc(peerName || "your teammate")}…`;
+    }
+    $("status").innerHTML = s;
+    $("sub").textContent = t;
+    $("sub").hidden = !t;
+
+    const ctr = $("controls");
+    ctr.innerHTML = "";
+    if (!connected()) return;
+    if (g.winner) {
+      const b = document.createElement("button");
+      b.className = "btn primary"; b.type = "button";
+      b.textContent = `New round (${g.starter === "X" ? "O" : "X"} opens)`;
+      b.onclick = () => act("newRound");
+      ctr.append(b);
+    }
+    if (g.scores.X + g.scores.O + g.scores.draw > 0) {
+      const b = document.createElement("button");
+      b.className = "btn"; b.type = "button";
+      b.textContent = pendingReset ? "Yes, reset to 0–0" : "Reset score";
+      b.onclick = () => {
+        if (!pendingReset) {
+          pendingReset = true; render();
+          setTimeout(() => { if (pendingReset) { pendingReset = false; render(); } }, 4000);
+          return;
+        }
+        pendingReset = false; act("reset");
+      };
+      ctr.append(b);
+    }
+  }
+
+  // ---- page controls -------------------------------------------------------
+  $("copyBtn").onclick = async () => {
+    const input = $("inviteUrl");
+    try {
+      await navigator.clipboard.writeText(input.value);
+      $("copyBtn").textContent = "Copied";
+      setTimeout(() => { $("copyBtn").textContent = "Copy link"; }, 2000);
+    } catch {
+      input.focus(); input.select();
+      note("Press Ctrl+C (or ⌘C) to copy the selected link.");
+    }
+  };
+  $("inviteUrl").addEventListener("focus", (e) => e.target.select());
+
+  const nameInput = $("myName");
+  nameInput.value = myName;
+  let nameTimer = 0;
+  nameInput.addEventListener("input", () => {
+    myName = nameInput.value.trim().slice(0, 30);
+    store.set("localStorage", "ttp-name", myName);
+    render();
+    clearTimeout(nameTimer);
+    nameTimer = setTimeout(() => send({ type: "hello", name: myName }), 400);
+  });
+
+  render();
+  start();
+})();
+</script>
+</body>
+</html>
