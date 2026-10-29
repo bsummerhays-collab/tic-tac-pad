@@ -296,7 +296,11 @@ footer a { color: var(--muted); }
   const theirMark = myMark === "X" ? "O" : "X";
 
   let peer = null, conn = null;
-  let linkState = "starting";  // starting | waiting | connected | lost | failed
+  let linkState = "starting";  // starting | waiting | connected | lost | full | failed
+  // Identifies this tab across reloads, so the host can tell its own guest from a stranger.
+  let clientId = store.get("sessionStorage", "ttp-client-id");
+  if (!clientId) { clientId = crypto.getRandomValues(new Uint32Array(2)).join("-"); store.set("sessionStorage", "ttp-client-id", clientId); }
+  let guestClient = null;
   let peerName = "";
   let myName = store.get("localStorage", "ttp-name") || "";
   let state = blank();
@@ -379,6 +383,14 @@ footer a { color: var(--muted); }
     }
     if (role === "guest" && msg.type === "state") {
       state = normalize(msg.state);
+      if (linkState !== "connected") { linkState = "connected"; note(""); }
+      render();
+      return;
+    }
+    if (role === "guest" && msg.type === "full") {
+      linkState = "full";
+      clearTimeout(retryTimer);
+      conn = null;
       render();
       return;
     }
@@ -392,17 +404,42 @@ footer a { color: var(--muted); }
   // ---- connection ----------------------------------------------------------
   function send(msg) { if (conn && conn.open) { try { conn.send(msg); } catch {} } }
 
+  function adopt(c) {
+    if (conn && conn !== c) { try { conn.close(); } catch {} }
+    conn = c;
+  }
+
   function setupConn(c) {
+    // The guest is in once the host sends the game; the host lets a newcomer in
+    // only when the O seat is free or it's the same guest coming back.
+    let admitted = role === "guest";
     c.on("open", () => {
-      if (conn && conn !== c) { try { conn.close(); } catch {} }
-      conn = c;
-      linkState = "connected";
-      send({ type: "hello", name: myName });
-      if (role === "host") send({ type: "state", state });
-      note("");
-      render();
+      if (role === "guest") {
+        adopt(c);
+        send({ type: "hello", name: myName, client: clientId });
+      }
     });
-    c.on("data", onData);
+    c.on("data", (msg) => {
+      if (role === "host" && !admitted) {
+        if (!msg || msg.type !== "hello") return;
+        const client = String(msg.client || "");
+        if (conn && conn !== c && conn.open && client !== guestClient) {
+          try { c.send({ type: "full" }); } catch {}
+          setTimeout(() => { try { c.close(); } catch {} }, 1000);
+          return;
+        }
+        admitted = true;
+        guestClient = client;
+        adopt(c);
+        linkState = "connected";
+        note("");
+        send({ type: "hello", name: myName });
+        send({ type: "state", state });
+        onData(msg);
+        return;
+      }
+      if (c === conn) onData(msg);
+    });
     c.on("close", () => {
       if (conn !== c) return;
       conn = null;
@@ -419,7 +456,7 @@ footer a { color: var(--muted); }
   }
   function join() {
     clearTimeout(retryTimer);
-    if (!peer || peer.destroyed || connected()) return;
+    if (!peer || peer.destroyed || connected() || linkState === "full") return;
     if (peer.disconnected) { peer.reconnect(); return; }
     const c = peer.connect(joinId, { reliable: true });
     setupConn(c);
@@ -474,6 +511,7 @@ footer a { color: var(--muted); }
         setTimeout(start, 3000);
         return;
       }
+      if (linkState === "full") return;
       if (t === "peer-unavailable") {
         linkState = "lost";
         note("Can't reach the other player yet. Make sure their game tab is open; retrying…");
@@ -518,10 +556,12 @@ footer a { color: var(--muted); }
     const c = $("conn");
     c.className = "eyebrow conn" + (connected() ? " on" : "");
     c.textContent = { starting: "Starting", waiting: "Waiting for teammate", connected: "Connected",
-                      lost: role === "guest" ? "Joining" : "Reconnecting", failed: "Offline" }[linkState];
+                      lost: role === "guest" ? "Joining" : "Reconnecting", full: "Game full", failed: "Offline" }[linkState];
 
+    const full = linkState === "full";
     $("invite").hidden = role !== "host" || connected();
-    $("newGame").hidden = role !== "guest";
+    $("newGame").hidden = role !== "guest" || full;
+    for (const sel of [".you", ".players", ".board", "footer"]) document.querySelector(sel).hidden = full;
     $("roundLabel").textContent = `Round ${g.round} · ${g.starter} opens`;
     $("tally").textContent = `Draws ${g.scores.draw}`;
 
@@ -581,6 +621,9 @@ footer a { color: var(--muted); }
       s = "Setting up the game…";
     } else if (linkState === "failed") {
       s = "Can't connect";
+    } else if (linkState === "full") {
+      s = "This game already has two players";
+      t = "Start your own game, then send the new link to whoever you want to play.";
     } else if (!connected()) {
       if (role === "host") {
         s = linkState === "waiting" && g.round === 1 && !g.board.some(Boolean) ? "Waiting for your teammate" : "Waiting for your teammate to reconnect";
@@ -604,6 +647,14 @@ footer a { color: var(--muted); }
 
     const ctr = $("controls");
     ctr.innerHTML = "";
+    if (linkState === "full") {
+      const b = document.createElement("button");
+      b.className = "btn primary"; b.type = "button";
+      b.textContent = "Start your own game";
+      b.onclick = () => { location.href = "./"; };
+      ctr.append(b);
+      return;
+    }
     if (!connected()) return;
     if (g.winner) {
       const b = document.createElement("button");
@@ -650,7 +701,7 @@ footer a { color: var(--muted); }
     store.set("localStorage", "ttp-name", myName);
     render();
     clearTimeout(nameTimer);
-    nameTimer = setTimeout(() => send({ type: "hello", name: myName }), 400);
+    nameTimer = setTimeout(() => send({ type: "hello", name: myName, client: clientId }), 400);
   });
 
   render();
