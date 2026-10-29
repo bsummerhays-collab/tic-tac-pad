@@ -559,31 +559,87 @@ footer a { color: var(--muted); }
   }
   ["pointerdown", "keydown"].forEach((ev) => window.addEventListener(ev, unlockAudio, { capture: true }));
 
-  function chime() {
-    if (!soundOn || !audio || audio.state !== "running") return;
-    const t0 = audio.currentTime + 0.01;
-    // Two soft rising notes: E5 then A5.
-    [[659.25, 0], [880, 0.12]].forEach(([freq, delay]) => {
-      const osc = audio.createOscillator();
-      const gain = audio.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, t0 + delay);
-      gain.gain.exponentialRampToValueAtTime(0.22, t0 + delay + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + delay + 0.32);
-      osc.connect(gain).connect(audio.destination);
-      osc.start(t0 + delay);
-      osc.stop(t0 + delay + 0.34);
-    });
+  const canPlaySound = () => soundOn && audio && audio.state === "running";
+
+  // One note: a quick attack, then a fade over `dur` seconds.
+  // `wobble` adds vibrato; `muffle` softens bright waveforms with a low-pass filter.
+  function tone(freq, at, dur, { type = "sine", peak = 0.2, wobble = 0, muffle = 0 } = {}) {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(peak, at + 0.015);
+    gain.gain.setValueAtTime(peak, at + dur * 0.6);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    let out = osc;
+    if (muffle) {
+      const filter = audio.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = muffle;
+      out = osc.connect(filter);
+    }
+    out.connect(gain).connect(audio.destination);
+    if (wobble) {
+      const lfo = audio.createOscillator();
+      const depth = audio.createGain();
+      lfo.frequency.value = 6;
+      depth.gain.value = wobble;
+      lfo.connect(depth).connect(osc.frequency);
+      lfo.start(at);
+      lfo.stop(at + dur + 0.05);
+    }
+    osc.start(at);
+    osc.stop(at + dur + 0.05);
   }
 
-  // Called on every render; chimes only when the turn passes to this player,
-  // and not when their own "New round" click is what made it their turn.
+  // Two soft rising notes: E5 then A5.
+  function chime() {
+    if (!canPlaySound()) return;
+    const t = audio.currentTime + 0.01;
+    tone(659.25, t, 0.3);
+    tone(880, t + 0.12, 0.3);
+  }
+
+  // A bright rising fanfare: C5 E5 G5, then a held C6 over a G5 harmony.
+  function cheer() {
+    if (!canPlaySound()) return;
+    const t = audio.currentTime + 0.01;
+    const o = { type: "triangle", peak: 0.22 };
+    tone(523.25, t, 0.14, o);
+    tone(659.25, t + 0.11, 0.14, o);
+    tone(783.99, t + 0.22, 0.14, o);
+    tone(1046.5, t + 0.34, 0.7, { ...o, wobble: 4 });
+    tone(783.99, t + 0.34, 0.7, { ...o, peak: 0.1 });
+  }
+
+  // A deflated "wah wah wah wahhh": four falling notes, the last one wobbling.
+  function groan() {
+    if (!canPlaySound()) return;
+    const t = audio.currentTime + 0.01;
+    const o = { type: "sawtooth", peak: 0.12, muffle: 900 };
+    tone(392, t, 0.32, o);
+    tone(369.99, t + 0.36, 0.32, o);
+    tone(349.23, t + 0.72, 0.32, o);
+    tone(329.63, t + 1.08, 0.9, { ...o, wobble: 7 });
+  }
+
+  // Called on every render. Chimes when the turn passes to this player (but not
+  // when their own "New round" click made it their turn), and cheers or groans
+  // when a round they were watching ends. A draw stays quiet.
+  let seen = null;
   function checkTurn() {
     const myTurn = connected() && !state.winner && state.turn === myMark;
     if (skipRound !== null && state.round >= skipRound) skipRound = null;
     else if (myTurn && !wasMyTurn) chime();
     wasMyTurn = myTurn;
+
+    if (connected()) {
+      if (seen && seen.round === state.round && !seen.winner && state.winner && state.winner !== "draw") {
+        state.winner === myMark ? cheer() : groan();
+      }
+      seen = { round: state.round, winner: state.winner };
+    }
     document.title = myTurn && document.hidden ? "● Your move · Tic Tac Pad" : "Tic Tac Pad";
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) document.title = "Tic Tac Pad"; });
